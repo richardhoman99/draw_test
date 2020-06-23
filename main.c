@@ -13,6 +13,11 @@
 #include "dma.h"
 #include "gs.h"
 
+#define WIDTH 256
+#define HEIGHT 256
+#define WIDTHMAG 2
+#define HEIGHTMAG 1
+
 #define PORT 0
 #define SLOT 0
 
@@ -23,6 +28,7 @@ DECLARE_GS_PACKET(rect, 5);
 
 void put_pixel(u16 x, u16 y);
 void put_rect(u16 x0, u16 y0, u16 x1, u16 y1);
+void wait();
 
 typedef struct
 {
@@ -31,24 +37,38 @@ typedef struct
 
 enum colors
 {
-	kRED = 0,
+	kBLACK = 0,
+	kWHITE,
+	kRED,
+	kORANGE,
+	kYELLOW,
 	kGREEN,
+	kCYAN,
 	kBLUE,
-	colorsLength
+	kMAGENTA,
+	kPURPLE,
+	colorsLength,
 };
 
 color_t colorPreset[] = 
 {
-	{255, 0, 0}, // red
-	{0, 255, 0}, // green
-	{0, 0, 255} // blue
+	{0, 0, 0},			// black
+	{255, 255, 255},	// white
+	{255, 38, 0},		// red
+	{255, 147, 0},		// orange
+	{255, 251, 0},		// yellow
+	{0, 249, 0},		// green
+	{0, 253, 255}, 		// cyan
+	{4, 51, 255},		// blue
+	{255, 64, 255},		// magenta
+	{148, 33, 146},		// purple
 };
 
 static color_t *currentColor;
 
 int main(int argc, const char *argv[])
 {
-	int colorIndex = kGREEN;
+	unsigned int colorIndex = kGREEN + (colorsLength * 64);
 	int err;
 	int padState;
 	struct padButtonStatus buttonInfo;
@@ -99,29 +119,29 @@ int main(int argc, const char *argv[])
 		syscall"); // set gs crtc
 
 	GS_SET_PMODE(
-		1,		// ReadCircuit1 OFF 
-		0,		// ReadCircuit2 ON
-		1,		// Use ALP register for Alpha Blending
-		1,		// Alpha Value of ReadCircuit2 for output selection
-		0,		// Blend Alpha with the output of ReadCircuit2
-		0xFF	// Alpha Value = 1.0
+		1,			// ReadCircuit1 OFF 
+		0,			// ReadCircuit2 ON
+		1,			// Use ALP register for Alpha Blending
+		1,			// Alpha Value of ReadCircuit2 for output selection
+		0,			// Blend Alpha with the output of ReadCircuit2
+		0xFF		// Alpha Value = 1.0
 	);
 
 	GS_SET_DISPFB1(
-		0,				// Frame Buffer base pointer = 0 (Address/2048)
-		256/64,	// Buffer Width (Address/64)
+		0,			// Frame Buffer base pointer = 0 (Address/2048)
+		WIDTH/64,	// Buffer Width (Address/64)
 		0,			// Pixel Storage Format
-		0,				// Upper Left X in Buffer = 0
-		0				// Upper Left Y in Buffer = 0
+		0,			// Upper Left X in Buffer = 0
+		0			// Upper Left Y in Buffer = 0
 	);
 
 	GS_SET_DISPLAY1(
 		656,		// X position in the display area (in VCK units)
 		36,			// Y position in the display area (in Raster units)
-		1,			// Horizontal Magnification - 1
-		0,			// Vertical Magnification = 1x
-		255,		// Display area width  - 1 (in VCK units) (Width*HMag-1)
-		256			// Display area height - 1 (in pixels)	  (Height-1)
+		WIDTHMAG-1,	// Horizontal Magnification - 1
+		HEIGHTMAG-1,// Vertical Magnification = 1x
+		WIDTH-1,	// Display area width  - 1 (in VCK units) (Width*HMag-1)
+		HEIGHT-1		// Display area height - 1 (in pixels)	  (Height-1)
 	);
 
 	GS_SET_BGCOLOR(
@@ -138,9 +158,9 @@ int main(int argc, const char *argv[])
 
 	GIF_DATA_AD(gs_setup_buf, frame_1,
 		GS_FRAME(
-			0,					// FrameBuffer base pointer = 0 (Address/2048)
-			512/64,		// Frame buffer width (Pixels/64)
-			0,				// Pixel Storage Format
+			0,			// FrameBuffer base pointer = 0 (Address/2048)
+			WIDTH/64,		// Frame buffer width (Pixels/64)
+			0,			// Pixel Storage Format
 			0));
 
 	// No displacement between Primitive and Window coordinate systems.
@@ -153,19 +173,19 @@ int main(int argc, const char *argv[])
 	GIF_DATA_AD(gs_setup_buf, scissor_1,
 		GS_SCISSOR(
 			0,
-			512,
+			WIDTH,
 			0,
-			256));
+			HEIGHT));
 
 	SEND_GS_PACKET(gs_setup_buf);
 
 	currentColor = &(colorPreset[kGREEN]);
+	wait();
+	put_rect((WIDTH/WIDTHMAG)-10, 0, (WIDTH/WIDTHMAG), 10);
 
 	while (1)
 	{
-		register int wait;
-		for (wait = 0; wait < 0xFFFFF; wait++) { __asm__("nop;");}
-
+		wait();
 		padState = padGetState(PORT, SLOT);
 		if (padState != PAD_STATE_STABLE)
 		{
@@ -181,29 +201,41 @@ int main(int argc, const char *argv[])
 
 		if (buttons & PAD_UP)
 		{
-			drawY--;
+			if (--drawY < 0) drawY = 0;
 			draw = 1;
 		}
 		if (buttons & PAD_RIGHT)
 		{
-			drawX++;
+			if (++drawX > ((WIDTH/WIDTHMAG)-1)) drawX = ((WIDTH/WIDTHMAG)-1);
 			draw = 1;
 		}
 		if (buttons & PAD_DOWN)
 		{
-			drawY++;
+			if (++drawY > ((WIDTH/WIDTHMAG)-1)) drawY = ((WIDTH/WIDTHMAG)-1);
 			draw = 1;
 		}
 		if (buttons & PAD_LEFT)
 		{
-			drawX--;
+			if (--drawX < 0) drawX = 0;
 			draw = 1;
 		}
-		if (pButtons & PAD_SELECT && !(buttons & PAD_SELECT)) // select released
+		if (pButtons & PAD_L1 && !(buttons & PAD_L1)) // L1 released
+		{
+			colorIndex--;
+			currentColor = &(colorPreset[colorIndex % colorsLength]);
+			put_rect((WIDTH/WIDTHMAG)-10, 0, (WIDTH/WIDTHMAG), 10);
+		}
+		if (pButtons & PAD_R1 && !(buttons & PAD_R1)) // R1 released
 		{
 			colorIndex++;
-			if (colorIndex >= colorsLength) colorIndex = 0;
-			currentColor = &(colorPreset[colorIndex]);
+			currentColor = &(colorPreset[colorIndex % colorsLength]);
+			put_rect((WIDTH/WIDTHMAG)-10, 0, (WIDTH/WIDTHMAG), 10);
+		}
+		if (pButtons & PAD_START && !(buttons & PAD_START)) // start released
+		{
+			currentColor = &(colorPreset[kBLACK]);
+			put_rect(0, 0, (WIDTH/WIDTHMAG), (HEIGHT/HEIGHTMAG)); // clear screen
+			currentColor = &(colorPreset[colorIndex % colorsLength]); // give back user color
 		}
 
 		if (draw)
@@ -211,8 +243,6 @@ int main(int argc, const char *argv[])
 			put_pixel(drawX, drawY);
 		}
 		pButtons = buttons;
-
-		put_rect((256/2)-10, 0, (256/2), 10);
 	}
 
 	SleepThread();
@@ -239,7 +269,7 @@ void put_rect(u16 x0, u16 y0, u16 x1, u16 y1)
 {
 	BEGIN_GS_PACKET(rect);
 
-	GIF_TAG_AD(rect, 4, 1, 0, 0, 0);
+	GIF_TAG_AD(rect, 4, 0, 0, 0, 0);
 
 	GIF_DATA_AD(rect, prim, GS_PRIM(PRIM_SPRITE, 0, 0, 0, 0, 0, 0, 0, 0));
 	
@@ -250,4 +280,10 @@ void put_rect(u16 x0, u16 y0, u16 x1, u16 y1)
 	GIF_DATA_AD(rect, xyz2, GS_XYZ2((x1)<<4, (y1)<<4, 0));
 
 	SEND_GS_PACKET(rect);
+}
+
+void wait()
+{
+	register int wait;
+	for (wait = 0; wait < 0xFFFFF; wait++) { __asm__("nop;");}
 }
