@@ -16,8 +16,6 @@
 extern "C" {
 #endif
 
-extern void dma_reset(void);
-
 #ifdef __cplusplus
 }
 #endif

@@ -44,7 +44,9 @@
 	NAME[NAME##_cur++] = (u64)REG
 
 #define SEND_GS_PACKET(NAME) \
-	__asm__ ("	li	$3,100;syscall;"); /* flush cache */	\
+	__asm__ ("li $v1,100;\n \
+	 		  li $a0,0x0;\n \
+	 		  syscall;"); /* flush cache */	\
 	SET_QWC(GIF_QWC, NAME##_dma_size);			\
 	SET_MADR(GIF_MADR, &(NAME), 0);				\
 	SET_CHCR(GIF_CHCR, 1, 0, 0, 0, 0, 1, 0);	\

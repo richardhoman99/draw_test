@@ -7,8 +7,8 @@
 # Review ps2sdk README & LICENSE files for further details.
 
 EE_BIN = main.elf
-EE_OBJS = main.o dma_asm.s
-EE_LIBS = -lc -lpad
+EE_OBJS = main.o
+EE_LIBS = -lc -lpad -lkernel -ldma
 
 all: $(EE_BIN)
 

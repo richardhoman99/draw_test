@@ -40,7 +40,7 @@ extern void gs_set_crtc(u8 int_mode, u8 ntsc_pal, u8 field_mode);
 	((u64)(ID)		<< 24)
 
 #define GS_RESET() \
-	*CSR = ((u64)(1)	<< 9)
+	*CSR = ((u64)(1) << 9)
 
 //---------------------------------------------------------------------------
 // PMODE Register

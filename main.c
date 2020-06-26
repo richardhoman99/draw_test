@@ -3,20 +3,24 @@
  *	ETCH AND SKETCH ON PS2!!!
  */
 
+#include <stdio.h>
 #include <tamtypes.h>
-#include "libpad.h"
 #include <loadfile.h>
 #include <sifrpc.h>
 #include <kernel.h>
-#include <stdio.h>
+#include <debug.h>
+#include <unistd.h>
+#include <dma.h>
+
 #include "gif.h"
 #include "dma.h"
 #include "gs.h"
 
-#define WIDTH 256
-#define HEIGHT 256
-#define WIDTHMAG 2
-#define HEIGHTMAG 1
+#include "libpad.h"
+
+#define WIDTH 640
+#define HEIGHT 224
+#define WIDTHMAG 4
 
 #define PORT 0
 #define SLOT 0
@@ -77,7 +81,9 @@ int main(int argc, const char *argv[])
 	u32 pButtons = 0x00000000;
 
 	dma_reset();
+
 	SifInitRpc(0);
+
 	err = SifLoadModule("rom0:SIO2MAN", 0, NULL);
 	if (err < 0)
 	{
@@ -93,34 +99,20 @@ int main(int argc, const char *argv[])
 
 	padInit(0);
 	err = padPortOpen(PORT, SLOT, padBuff);
-	if (err == 0) printf("Could not open controller connection - code %d", err);
+	if (err == 0)
+	{
+		printf("Could not open controller connection - code %d\n", err);
+		SleepThread();
+	}
 
 	GS_RESET();
 
-	__asm__ (" \
-		li		$a0,0x0000FF00; \
-		.set noat; \
-		lui 	$at,0x1200; \
-		ori 	$at,$at,0x1000; \
-		ld		$v0,0x0($at); \
-		.set at; \
-		dsrl	$v0,16; \
-		andi	$v0,0xFF; \
-		li 		$v0,0x20; \
-		li		$v1,0x71; \
-		syscall;"); // set imr
-
-	__asm__ (" \
-		li 		$a0,0; # non-interlaced \
-		li 		$a1,2; # ntsc \
-		li 		$a2,1; # frame \
-		li		$v1,0x02; \
-		dli 	$v0,0xFF65; \
-		syscall"); // set gs crtc
+	GsPutIMR(0xFF00);
+	SetGsCrt(0x0, 0x2, 0x2); // non-interlaced, NTSC, field
 
 	GS_SET_PMODE(
-		1,			// ReadCircuit1 OFF 
-		0,			// ReadCircuit2 ON
+		1,			// ReadCircuit1 ON 
+		0,			// ReadCircuit2 OFF
 		1,			// Use ALP register for Alpha Blending
 		1,			// Alpha Value of ReadCircuit2 for output selection
 		0,			// Blend Alpha with the output of ReadCircuit2
@@ -136,12 +128,12 @@ int main(int argc, const char *argv[])
 	);
 
 	GS_SET_DISPLAY1(
-		656,		// X position in the display area (in VCK units)
-		36,			// Y position in the display area (in Raster units)
-		WIDTHMAG-1,	// Horizontal Magnification - 1
-		HEIGHTMAG-1,// Vertical Magnification = 1x
-		WIDTH-1,	// Display area width  - 1 (in VCK units) (Width*HMag-1)
-		HEIGHT-1		// Display area height - 1 (in pixels)	  (Height-1)
+		0x0,			// X position in the display area (in VCK units)
+		0x32,			// Y position in the display area (in Raster units)
+		(WIDTHMAG-1)/*(WIDTH+0x9FF)/WIDTH-1*/,	// Horizontal Magnification - 1
+		0,			// Vertical Magnification = 1x
+		WIDTH*WIDTHMAG - 1,		// Display area width  - 1 (in VCK units) (Width*HMag-1)
+		HEIGHT - 1	// Display area height - 1 (in pixels)	  (Height-1)
 	);
 
 	GS_SET_BGCOLOR(
@@ -179,9 +171,12 @@ int main(int argc, const char *argv[])
 
 	SEND_GS_PACKET(gs_setup_buf);
 
-	currentColor = &(colorPreset[kGREEN]);
+	currentColor = &(colorPreset[kBLACK]);
 	wait();
-	put_rect((WIDTH/WIDTHMAG)-10, 0, (WIDTH/WIDTHMAG), 10);
+	put_rect(0, 0, WIDTH, HEIGHT); // clear screen
+
+	currentColor = &(colorPreset[colorIndex]);
+	put_rect(WIDTH-10, 0, WIDTH, 10);
 
 	while (1)
 	{
@@ -189,7 +184,7 @@ int main(int argc, const char *argv[])
 		padState = padGetState(PORT, SLOT);
 		if (padState != PAD_STATE_STABLE)
 		{
-			printf("Controller state not stable");
+			printf("Controller state not stable\n");
 			continue;
 		}
 
@@ -206,12 +201,12 @@ int main(int argc, const char *argv[])
 		}
 		if (buttons & PAD_RIGHT)
 		{
-			if (++drawX > ((WIDTH/WIDTHMAG)-1)) drawX = ((WIDTH/WIDTHMAG)-1);
+			if (++drawX > (WIDTH-1)) drawX = (WIDTH-1);
 			draw = 1;
 		}
 		if (buttons & PAD_DOWN)
 		{
-			if (++drawY > ((WIDTH/WIDTHMAG)-1)) drawY = ((WIDTH/WIDTHMAG)-1);
+			if (++drawY > (HEIGHT-1)) drawY = (HEIGHT-1);
 			draw = 1;
 		}
 		if (buttons & PAD_LEFT)
@@ -223,28 +218,36 @@ int main(int argc, const char *argv[])
 		{
 			colorIndex--;
 			currentColor = &(colorPreset[colorIndex % colorsLength]);
-			put_rect((WIDTH/WIDTHMAG)-10, 0, (WIDTH/WIDTHMAG), 10);
+			put_rect(WIDTH-10, 0, WIDTH, 10);
 		}
 		if (pButtons & PAD_R1 && !(buttons & PAD_R1)) // R1 released
 		{
 			colorIndex++;
 			currentColor = &(colorPreset[colorIndex % colorsLength]);
-			put_rect((WIDTH/WIDTHMAG)-10, 0, (WIDTH/WIDTHMAG), 10);
+			put_rect(WIDTH-10, 0, WIDTH, 10);
 		}
 		if (pButtons & PAD_START && !(buttons & PAD_START)) // start released
 		{
 			currentColor = &(colorPreset[kBLACK]);
-			put_rect(0, 0, (WIDTH/WIDTHMAG), (HEIGHT/HEIGHTMAG)); // clear screen
+			put_rect(0, 0, WIDTH, HEIGHT); // clear screen
 			currentColor = &(colorPreset[colorIndex % colorsLength]); // give back user color
+			put_rect(WIDTH-10, 0, WIDTH, 10); // draw back selected color
+		}
+		if (buttons & PAD_TRIANGLE)
+		{
+			printf("ready to exit\n");
+			SleepThread();
 		}
 
 		if (draw)
 		{
 			put_pixel(drawX, drawY);
+			printf("x: %d, y: %d\n", drawX, drawY);
 		}
 		pButtons = buttons;
 	}
 
+	GS_RESET();
 	SleepThread();
 
 	return 0;
@@ -254,7 +257,7 @@ void put_pixel(u16 x, u16 y)
 {
 	BEGIN_GS_PACKET(pixel);
 
-	GIF_TAG_AD(pixel, 3, 0, 0, 0, 0);
+	GIF_TAG_AD(pixel, 3, 1, 0, 0, 0);
 
 	GIF_DATA_AD(pixel, prim, GS_PRIM(PRIM_POINT, 0, 0, 0, 0, 0, 0, 0, 0));
 	
@@ -269,15 +272,11 @@ void put_rect(u16 x0, u16 y0, u16 x1, u16 y1)
 {
 	BEGIN_GS_PACKET(rect);
 
-	GIF_TAG_AD(rect, 4, 0, 0, 0, 0);
-
+	GIF_TAG_AD(rect, 4, 1, 0, 0, 0);
 	GIF_DATA_AD(rect, prim, GS_PRIM(PRIM_SPRITE, 0, 0, 0, 0, 0, 0, 0, 0));
-	
-	GIF_DATA_AD(rect, rgbaq, GS_RGBAQ(currentColor->r, currentColor->g, currentColor->b, 0, 0));
-
+	GIF_DATA_AD(rect, rgbaq, GS_RGBAQ(currentColor->r, currentColor->g, currentColor->b, 0xFF, 0));
 	GIF_DATA_AD(rect, xyz2, GS_XYZ2(x0<<4, y0<<4, 0));
-
-	GIF_DATA_AD(rect, xyz2, GS_XYZ2((x1)<<4, (y1)<<4, 0));
+	GIF_DATA_AD(rect, xyz2, GS_XYZ2(x1<<4, y1<<4, 0));
 
 	SEND_GS_PACKET(rect);
 }
